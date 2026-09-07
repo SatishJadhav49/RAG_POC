@@ -23,3 +23,4 @@ TOP_ROWS = 30          # rows returned to the UI
 CAND_PER_LIST = 200    # candidates pulled from each retriever before fusion
 RRF_K = 60             # reciprocal-rank-fusion constant
 MIN_SIM = float(os.getenv("MIN_SIM", "0.30"))  # cosine floor; tune during POC
+STOP_DF = float(os.getenv("STOP_DF", "0.35"))   # terms in >35% of chunks are treated as filler

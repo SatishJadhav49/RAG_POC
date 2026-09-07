@@ -16,7 +16,15 @@ A query runs through three retrievers, fused with Reciprocal Rank Fusion:
 | `keyword`  | exact terms, part numbers, codes | "P0420", "sidewall" |
 | `spelling` | romanized-Hindi variants | "awaz" finds "awaaz", "aawaz" |
 
-Two design points worth knowing:
+Three design points worth knowing:
+
+- **Generic words are stripped from the lexical retrievers.** Searching "AC not
+  working" would otherwise rank "Horn not working" first: BM25 sees `working` as
+  rarer than `ac`, therefore more informative, and has no idea `ac` is the subject.
+  A static `STOPWORDS` list plus terms learned at ingest (anything appearing in
+  more than `STOP_DF` of chunks) keeps filler out of keyword and spelling search.
+  The semantic retriever still gets the untouched query, where phrasing does matter.
+  If every token is filler ("not working"), the filter falls back to the full query.
 
 - **Per-sentence chunking.** One description often lists several unrelated defects.
   Embedding the whole paragraph averages them into mush and the row stops being
@@ -85,6 +93,8 @@ All in `config.py` / `.env`:
 
 - `MIN_SIM` (0.30) - cosine floor. Raise if results feel loose, lower if too strict.
   **Tune this first once real embeddings are in.**
+- `STOP_DF` (0.35) - a term in more than this share of chunks is treated as filler.
+  Lower it if generic words still leak into results on the real corpus.
 - `TOP_ROWS` (30) - rows returned
 - `CAND_PER_LIST` (200) - candidates per retriever before fusion
 - `EMBED_DIM` (1024) - Matryoshka truncation of `text-embedding-3-large`. At the

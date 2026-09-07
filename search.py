@@ -23,6 +23,7 @@ class Index:
         order = self.conn.execute("SELECT chunk_id FROM chunks ORDER BY vec_pos").fetchall()
         self.chunk_ids = np.array([r["chunk_id"] for r in order], dtype=np.int64)
         self.embedder = core.Embedder(self.conn)
+        self.learned_stop = {r["term"] for r in self.conn.execute("SELECT term FROM stopwords")}
 
     # -- individual retrievers -------------------------------------------
 
@@ -37,7 +38,8 @@ class Index:
         return [int(self.chunk_ids[i]) for i in top if scores[i] >= config.MIN_SIM]
 
     def _fts(self, table: str, query: str, k: int, min_token_len: int, squeeze: bool = False) -> list[int]:
-        expr = core.fts_expr(core.squeeze(query) if squeeze else query, min_token_len)
+        learned = {core.squeeze(t) for t in self.learned_stop} if squeeze else self.learned_stop
+        expr = core.fts_expr(core.squeeze(query) if squeeze else query, min_token_len, learned)
         if not expr:
             return []
         sql = f"SELECT rowid FROM {table} WHERE {table} MATCH ? ORDER BY bm25({table}) LIMIT ?"

@@ -64,6 +64,19 @@ def main() -> None:
     conn.executemany("INSERT INTO chunks(chunk_id, row_id, text, norm, vec_pos) VALUES (?,?,?,?,?)", records)
     conn.executemany("INSERT INTO chunks_fts(rowid, norm) VALUES (?,?)", [(r[0], r[3]) for r in records])
     conn.executemany("INSERT INTO chunks_tri(rowid, norm) VALUES (?,?)", [(r[0], core.squeeze(r[3])) for r in records])
+    # Learn corpus-specific filler: terms so common here they cannot
+    # discriminate between defects. Complements the static STOPWORDS list and
+    # adapts automatically to however your dealers actually write.
+    from collections import Counter
+    df = Counter()
+    for r in records:
+        df.update(set(r[3].split()))
+    learned = sorted(t for t, n in df.items() if n / len(records) > config.STOP_DF)
+    conn.execute("DELETE FROM stopwords")
+    conn.executemany("INSERT INTO stopwords(term) VALUES (?)", [(t,) for t in learned])
+    if learned:
+        print(f"learned {len(learned)} corpus stopwords: {', '.join(learned[:12])}"
+              + (" ..." if len(learned) > 12 else ""))
     conn.commit()
 
     mode = "OFFLINE (fake vectors)" if config.OFFLINE_EMBED else f"{config.EMBED_DEPLOYMENT} @ {config.EMBED_DIM}d"

@@ -35,6 +35,34 @@ def squeeze(text) -> str:
     return re.sub(r"(.)\1+", r"\1", normalize(text))
 
 
+# Generic words that appear across a defect corpus regardless of the actual
+# defect. Kept out of the LEXICAL retrievers only: "AC not working" would
+# otherwise rank "Horn not working" top, because BM25 sees "working" as the
+# rarer - therefore more informative - term. The semantic retriever still
+# receives the untouched query, where the full phrasing does carry meaning.
+STOPWORDS = set("""
+a an the is are was were be been being not no and or of in on at to for from with by
+it its this that there here has have had do does did doing done
+working work works issue issues problem problems complaint complaints defect
+customer client reported report observed noticed found states said stated
+during while after before also very please kindly again still same due getting
+hai hain ho hota hoti raha rahi rahe rha rhi me mein se ka ki ke ko par pe
+bhi nahi na kar karo kiya gaya aa aata aati jab tab ye yeh wo woh
+""".split())
+
+
+def content_tokens(query: str, learned: set | None = None) -> list[str]:
+    """Query tokens with generic terms removed.
+
+    Falls back to the full token list when everything would be dropped, so a
+    query like "not working" still returns something.
+    """
+    toks = normalize(query).split()
+    stop = STOPWORDS | (learned or set())
+    kept = [t for t in toks if t not in stop]
+    return kept or toks
+
+
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 
@@ -73,9 +101,9 @@ def chunk(text, min_chars: int = 15, max_chars: int = 500) -> list[str]:
     return out
 
 
-def fts_expr(query: str, min_token_len: int = 1) -> str | None:
-    """Build a safe FTS5 MATCH expression: every token OR'd together."""
-    toks = [t for t in normalize(query).split() if len(t) >= min_token_len]
+def fts_expr(query: str, min_token_len: int = 1, learned: set | None = None) -> str | None:
+    """Build a safe FTS5 MATCH expression from the query's content words."""
+    toks = [t for t in content_tokens(query, learned) if len(t) >= min_token_len]
     if not toks:
         return None
     return " OR ".join(f'"{t}"' for t in toks)
@@ -111,6 +139,9 @@ CREATE TABLE IF NOT EXISTS emb_cache (
     dim  INTEGER NOT NULL,
     vec  BLOB NOT NULL
 );
+
+-- Terms so common in this corpus that they carry no signal (learned at ingest).
+CREATE TABLE IF NOT EXISTS stopwords (term TEXT PRIMARY KEY);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
     USING fts5(norm, content='', tokenize='unicode61');
