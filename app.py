@@ -42,9 +42,17 @@ def api_search(
     source: str = "", shop: str = "", auditor: str = "", attribution: str = "",
     date_from: str = "", date_to: str = "",
     limit: int = config.TOP_ROWS,
+    rerank: bool | None = None,
 ):
-    hits = index().search(q, _filters(source, shop, auditor, attribution, date_from, date_to), limit)
-    return {"query": q, "count": len(hits), "results": hits}
+    hits = index().search(q, _filters(source, shop, auditor, attribution, date_from, date_to), limit, rerank)
+    kept = [h for h in hits if h.get("_relevant", True)]
+    return {
+        "query": q,
+        "count": len(kept),
+        "excluded": len(hits) - len(kept),
+        "reranked": config.RERANK if rerank is None else rerank,
+        "results": hits,
+    }
 
 
 @app.get("/api/export.csv")
@@ -54,7 +62,8 @@ def export_csv(
     date_from: str = "", date_to: str = "",
     limit: int = 1000,
 ):
-    hits = index().search(q, _filters(source, shop, auditor, attribution, date_from, date_to), limit)
+    hits = [h for h in index().search(q, _filters(source, shop, auditor, attribution, date_from, date_to), limit)
+            if h.get("_relevant", True)]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(config.COLUMNS + ["Matched Snippet", "Score"])

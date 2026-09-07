@@ -12,6 +12,7 @@ import numpy as np
 
 import config
 import core
+import rerank as rerank_mod
 
 FIELDS = ["Source", "Problem Description", "Attribution", "Shop", "Auditor", "Reported Date"]
 
@@ -50,7 +51,8 @@ class Index:
 
     # -- fusion -----------------------------------------------------------
 
-    def search(self, query: str, filters: dict | None = None, top_rows: int = config.TOP_ROWS) -> list[dict]:
+    def search(self, query: str, filters: dict | None = None, top_rows: int = config.TOP_ROWS,
+               rerank: bool | None = None) -> list[dict]:
         query = (query or "").strip()
         if not query:
             return []
@@ -82,12 +84,27 @@ class Index:
         best: dict[int, dict] = {}
         for cr in chunk_rows:
             rid, cid = cr["row_id"], cr["chunk_id"]
-            cand = {"score": fused[cid], "snippet": cr["text"], "matched_by": matched_by[cid]}
+            cand = {"score": fused[cid], "snippet": cr["text"], "matched_by": matched_by[cid], "cid": cid}
             if rid not in best or cand["score"] > best[rid]["score"]:
                 best[rid] = cand
 
         ranked = sorted(best.items(), key=lambda kv: -kv[1]["score"])
-        return self._materialize(ranked, filters or {}, top_rows)
+        use_llm = config.RERANK if rerank is None else rerank
+        if not use_llm:
+            return self._materialize(ranked, filters or {}, top_rows)
+
+        # Over-fetch, then let the LLM cut. Filtering can only ever remove rows,
+        # so the candidate pool has to be wide enough to hold the recall.
+        rows = self._materialize(ranked, filters or {}, max(top_rows, config.RERANK_CANDIDATES))
+        verdicts = rerank_mod.judge(
+            self.conn, query,
+            [{"id": r["_cid"], "text": r["_matched_snippet"]} for r in rows],
+        )
+        for r in rows:
+            r["_relevant"] = verdicts.get(r["_cid"], True)
+        keep = [r for r in rows if r["_relevant"]][:top_rows]
+        drop = [r for r in rows if not r["_relevant"]]
+        return keep + drop
 
     # -- row hydration ----------------------------------------------------
 
@@ -123,6 +140,8 @@ class Index:
                 "_score": round(meta["score"], 5),
                 "_matched_snippet": meta["snippet"],
                 "_matched_by": sorted(meta["matched_by"]),
+                "_cid": meta["cid"],
+                "_relevant": True,
             })
             if len(out) >= top_rows:
                 break

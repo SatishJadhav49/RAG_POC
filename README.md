@@ -34,6 +34,32 @@ Three design points worth knowing:
 - **A similarity floor (`MIN_SIM`).** Vector search is top-k with no natural cutoff,
   so a nonsense query would otherwise still return 30 confident-looking rows.
 
+## Optional: LLM relevance filter
+
+Set `RERANK=1` to add a gpt-4o pass between retrieval and display. It reads the
+matched sentence of each candidate and decides which genuinely describe the
+queried defect - catching what no lexical rule can, e.g. that "Transit damage
+suspected" is not a tyre defect while "Alloy wheel damaged" is.
+
+Three properties worth understanding before you rely on it:
+
+- **It can only raise precision, never recall.** The filter judges what retrieval
+  already found and can never add a row back. So enabling it *widens* the
+  candidate pool to `RERANK_CANDIDATES` (100) and filters down, rather than
+  filtering the top 30. Recall has to be won before this step runs.
+- **Verdicts are cached and the model runs at `temperature=0`,** so a query
+  returns a reproducible count. If a number from this tool lands in an audit
+  report, it must not change between runs.
+- **Excluded rows are collapsed, not deleted.** The UI shows them behind a
+  "show N excluded" toggle so nothing silently disappears from an audit search.
+  CSV export contains only the kept rows.
+
+Cost is roughly a few hundred tokens per search; negligible at 10 users. It adds
+about 1-3 seconds of latency, so it is a per-search toggle in the UI (`?rerank=true|false`)
+and you can A/B it against plain hybrid search.
+
+If gpt-4o is unreachable the search itself still works - turn the toggle off.
+
 ## Setup
 
 ```bash
@@ -70,7 +96,7 @@ Moving to SQL later means replacing `load_dataframe()` in `ingest.py` with a
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/search?q=...` | JSON rows; optional `source`, `shop`, `auditor`, `attribution`, `date_from`, `date_to`, `limit` |
+| `GET /api/search?q=...` | JSON rows; optional `source`, `shop`, `auditor`, `attribution`, `date_from`, `date_to`, `limit`, `rerank` |
 | `GET /api/export.csv?q=...` | Same results as CSV |
 | `GET /api/facets` | Filter dropdown values |
 | `POST /api/reload` | Reload the index after a nightly ingest, no restart |

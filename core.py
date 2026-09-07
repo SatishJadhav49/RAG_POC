@@ -140,6 +140,14 @@ CREATE TABLE IF NOT EXISTS emb_cache (
     vec  BLOB NOT NULL
 );
 
+-- LLM relevance verdicts, cached so a query returns a reproducible count.
+CREATE TABLE IF NOT EXISTS rerank_cache (
+    qhash    TEXT NOT NULL,
+    chunk_id INTEGER NOT NULL,
+    relevant INTEGER NOT NULL,
+    PRIMARY KEY (qhash, chunk_id)
+);
+
 -- Terms so common in this corpus that they carry no signal (learned at ingest).
 CREATE TABLE IF NOT EXISTS stopwords (term TEXT PRIMARY KEY);
 
