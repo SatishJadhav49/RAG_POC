@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Defect Search</title>
+<style>
+  :root { --bd:#d8dde3; --mut:#667085; --bg:#f6f7f9; --ac:#1f5fbf; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,Segoe UI,sans-serif; color:#1a1f26; background:var(--bg); }
+  header { background:#fff; border-bottom:1px solid var(--bd); padding:16px 24px; }
+  h1 { margin:0 0 12px; font-size:17px; }
+  .searchbar { display:flex; gap:8px; }
+  input, select { padding:8px 10px; border:1px solid var(--bd); border-radius:6px; font:inherit; background:#fff; }
+  #q { flex:1; }
+  button { padding:8px 16px; border:0; border-radius:6px; background:var(--ac); color:#fff; font:inherit; cursor:pointer; }
+  button.sec { background:#fff; color:#1a1f26; border:1px solid var(--bd); }
+  .filters { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .filters label { color:var(--mut); font-size:12px; }
+  main { padding:16px 24px 40px; }
+  #status { color:var(--mut); margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--bd); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 11px; border-bottom:1px solid #eef1f4; vertical-align:top; }
+  th { background:#fbfcfd; font-size:12px; color:var(--mut); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  td.desc { min-width:340px; }
+  .snip { display:block; margin-top:4px; padding-left:8px; border-left:2px solid var(--ac); color:#333; font-size:13px; }
+  .tags { margin-top:5px; }
+  .tag { display:inline-block; font-size:10.5px; padding:1px 6px; border-radius:99px; background:#eef2f7; color:#456; margin-right:4px; }
+  .nowrap { white-space:nowrap; }
+  .empty { padding:28px; text-align:center; color:var(--mut); background:#fff; border:1px solid var(--bd); border-radius:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Defect Search</h1>
+  <div class="searchbar">
+    <input id="q" placeholder="Search a defect, e.g. tyre damage / brake awaaz / AC not cooling" autofocus>
+    <button onclick="run()">Search</button>
+    <button class="sec" onclick="exportCsv()">Export CSV</button>
+  </div>
+  <div class="filters">
+    <label>Source</label><select id="source"></select>
+    <label>Shop</label><select id="shop"></select>
+    <label>Auditor</label><select id="auditor"></select>
+    <label>Attribution</label><select id="attribution"></select>
+    <label>From</label><input type="date" id="date_from">
+    <label>To</label><input type="date" id="date_to">
+  </div>
+</header>
+<main>
+  <div id="status">Loading…</div>
+  <div id="out"></div>
+</main>
+<script>
+const COLS = ["Source","Problem Description","Attribution","Shop","Auditor","Reported Date"];
+const FILTERS = ["source","shop","auditor","attribution","date_from","date_to"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function params() {
+  const p = new URLSearchParams({ q: $("q").value });
+  FILTERS.forEach(f => { if ($(f).value) p.set(f, $(f).value); });
+  return p;
+}
+
+async function init() {
+  const f = await (await fetch("/api/facets")).json();
+  [["source","Source"],["shop","Shop"],["auditor","Auditor"],["attribution","Attribution"]].forEach(([id,key]) => {
+    $(id).innerHTML = `<option value="">All</option>` + f[key].map(v => `<option>${esc(v)}</option>`).join("");
+  });
+  $("status").textContent = `${f.total_rows} rows indexed. Enter a defect to search.`;
+}
+
+async function run() {
+  if (!$("q").value.trim()) return;
+  $("status").textContent = "Searching…";
+  const d = await (await fetch("/api/search?" + params())).json();
+  $("status").textContent = `${d.count} matching row${d.count === 1 ? "" : "s"} for "${d.query}"`;
+  if (!d.count) {
+    $("out").innerHTML = `<div class="empty">No rows matched. Try different wording, or clear the filters.</div>`;
+    return;
+  }
+  $("out").innerHTML = `<table><thead><tr>${COLS.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>`
+    + d.results.map(r => `<tr>
+        <td class="nowrap">${esc(r.Source)}</td>
+        <td class="desc">${esc(r["Problem Description"])}
+          <span class="snip">${esc(r._matched_snippet)}</span>
+          <span class="tags">${r._matched_by.map(m => `<span class="tag">${m}</span>`).join("")}</span></td>
+        <td>${esc(r.Attribution)}</td>
+        <td>${esc(r.Shop)}</td>
+        <td>${esc(r.Auditor)}</td>
+        <td class="nowrap">${esc(r["Reported Date"])}</td>
+      </tr>`).join("") + `</tbody></table>`;
+}
+
+function exportCsv() { if ($("q").value.trim()) location = "/api/export.csv?" + params(); }
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+FILTERS.forEach(f => $(f).addEventListener("change", () => $("q").value.trim() && run()));
+init();
+</script>
+</body>
+</html>
